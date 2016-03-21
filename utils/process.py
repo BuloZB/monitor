@@ -59,9 +59,10 @@ class SignatureProcessor(object):
         '__cdecl': '',
     }
 
-    def __init__(self, data_dir, out_dir, sig_dirpath, flags):
+    def __init__(self, data_dir, out_dir, sig_dirpath, flags, validate=True):
         self.data_dir = data_dir
         self.flags = flags
+        self.validate = validate
 
         base_sigs_path = os.path.join(data_dir, 'base-sigs.json')
         types_path = os.path.join(data_dir, 'types.conf')
@@ -316,35 +317,39 @@ class SignatureProcessor(object):
                     raise Exception('Error parsing node of api %r: %s' %
                                     (apiname, e.message))
 
+            if 'signature' not in row and not self.validate:
+                row['signature'] = {"library": "unknown"}
+
             # By default hooks are not "special". Special hooks are those
             # hooks that are executed also when already inside another hook.
             # Note that it doesn't really matter what value is specified for
             # "special" in the signature, as long as it is set.
             row['signature']['special'] = 'special' in row['signature']
 
-            # Check whether there is a return value present.
-            if 'return_value' not in row['signature']:
-                raise Exception('No return value present for %r.' %
-                                row['apiname'])
+            if self.validate:
+                # Check whether there is a return value present.
+                if 'return_value' not in row['signature']:
+                    raise Exception('No return value present for %r.' %
+                                    row['apiname'])
 
-            # If no is_success handler has been defined then use one based on
-            # the return value. (This is the default behavior.)
-            if 'is_success' not in row['signature']:
-                retval = row['signature']['return_value']
-                if retval not in self.is_success:
-                    raise Exception('Unknown return_value %r for api %r.' %
-                                    (retval, row['apiname']))
+                # If no is_success handler has been defined then use one based on
+                # the return value. (This is the default behavior.)
+                if 'is_success' not in row['signature']:
+                    retval = row['signature']['return_value']
+                    if retval not in self.is_success:
+                        raise Exception('Unknown return_value %r for api %r.' %
+                                        (retval, row['apiname']))
 
-                row['signature']['is_success'] = self.is_success[retval]
+                    row['signature']['is_success'] = self.is_success[retval]
 
-            # Check the calling convention.
-            cconv = row['signature'].get('calling_convention')
-            if cconv not in self.CALLING_CONVENTIONS:
-                raise Exception('Calling convention of %r must be WINAPI or '
-                                '__cdecl.' % row['apiname'])
+                # Check the calling convention.
+                cconv = row['signature'].get('calling_convention')
+                if cconv not in self.CALLING_CONVENTIONS:
+                    raise Exception('Calling convention of %r must be WINAPI or '
+                                    '__cdecl.' % row['apiname'])
 
-            row['signature']['calling_convention'] = \
-                self.CALLING_CONVENTIONS[cconv]
+                row['signature']['calling_convention'] = \
+                    self.CALLING_CONVENTIONS[cconv]
 
             # Check any defined callback functions.
             if 'callback' in row['signature']:
@@ -569,6 +574,7 @@ if __name__ == '__main__':
     parser.add_argument('output_directory', type=str, nargs='?', default='objects/code/', help='Output directory.')
     parser.add_argument('signatures_directory', type=str, nargs='?', default='sigs/', help='Signature directory.')
     parser.add_argument('flags_directory', type=str, nargs='?', default='flags/', help='Flags directory.')
+    parser.add_argument('--overrides_directory', type=str, nargs='?', default=None, help='Overrides directory.')
     parser.add_argument('-a', '--apis', type=str, help='If set, only hook these functions.')
     args = parser.parse_args()
 
@@ -578,6 +584,20 @@ if __name__ == '__main__':
     dp = SignatureProcessor(args.data_directory, args.output_directory,
                             args.signatures_directory, fp.flags.keys())
     dp.process()
+
+    if args.overrides_directory:
+        op = SignatureProcessor(args.data_directory, args.output_directory,
+                                args.overrides_directory, fp.flags.keys(), validate=False)
+        op.process()
+
+        for sig in op.sigs:
+            if sig["is_hook"]:
+                # only allow overriding of certain fields
+                sanitized = dict((i, j) for i,j in sig.iteritems() if i in ["pre", "post", "middle"])
+                for targetsig in dp.sigs:
+                    if sig["apiname"] == targetsig["apiname"]:
+                        targetsig.update(sanitized)
+                        break
 
     apis = []
     if args.apis:
