@@ -545,3 +545,18 @@ Logging::
     u resource_name pActCtx != NULL ? pActCtx->lpResourceName : NULL
     u application_name pActCtx != NULL ? pActCtx->lpApplicationName : NULL
     p module_handle pActCtx != NULL ? pActCtx->hModule : NULL
+
+HeapCreate
+==========
+
+Signature::
+
+    * Library: kernel32
+    * Return value: HANDLE
+    * Is success: ret != 0
+
+Parameters::
+
+    ** DWORD flOptions heap_options
+    ** SIZE_T dwInitialSize heap_size
+    ** SIZE_T dwMaximumSize heap_maxsize
